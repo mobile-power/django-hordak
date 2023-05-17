@@ -20,8 +20,8 @@ Additionally, there are models which related to the import of external bank stat
 - ``StatementLine`` - Represents a statement line. ``StatementLine.create_transaction()`` may be called to
   create a transaction for the statement line.
 """
-import json
 
+from django.db import models
 from django.contrib.postgres.fields.array import ArrayField
 from django.contrib.postgres.forms import SimpleArrayField
 from django.contrib.postgres.utils import prefix_validation_error
@@ -31,12 +31,10 @@ from django.db import connection, models
 from django.db import transaction
 from django.db import transaction as db_transaction
 from django.db.models import JSONField
-from django.db.models.fields.mixins import CheckFieldDefaultMixin
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_smalluuid.models import SmallUUIDField, uuid_default
 from djmoney.models.fields import MoneyField
-from djmoney.settings import CURRENCY_CHOICES
 from model_utils import Choices
 from moneyed import CurrencyDoesNotExist, Money
 from mptt.models import MPTTModel, TreeForeignKey, TreeManager
@@ -56,144 +54,8 @@ def json_default():
     return {}
 
 
-class HordakMysqlArrayField(CheckFieldDefaultMixin, models.fields.Field):
-    empty_strings_allowed = False
-    default_error_messages = {
-        "item_invalid": _("Item %(nth)s in the array did not validate:"),
-        "nested_array_mismatch": _("Nested arrays must have the same length."),
-    }
-    _default_hint = ("list", "[]")
-
-    def __init__(self, base_field, size=None, **kwargs):
-        self.base_field = base_field
-        self.size = size
-
-        if self.size:
-            self.default_validators = [
-                *self.default_validators,
-                ArrayMaxLengthValidator(self.size),
-            ]
-        super().__init__(**kwargs)
-
-    def db_type(self, connection):
-        return "TEXT"
-
-    def cast_db_type(self, connection):
-        return "%s" % (self.base_field.cast_db_type(connection))
-
-    def from_db_value(self, value, expression, connection):
-        if value is None:
-            return value
-        return json.loads(value)
-
-    def get_prep_value(self, value):
-        if value is None:
-            return None
-
-        if isinstance(value, (list, tuple)):
-            vals = [str(i) for i in value]
-        elif isinstance(value, str):
-            vals = value.split(",")
-        else:
-            vals = [str(value)]
-        return json.dumps(vals)
-
-    def deconstruct(self):
-        name, path, args, kwargs = super().deconstruct()
-        kwargs.update(
-            {
-                "base_field": self.base_field.clone(),
-                "size": self.size,
-            }
-        )
-        return name, path, args, kwargs
-
-    def to_python(self, value):
-        if isinstance(value, str):
-            value = [self.base_field.to_python(val) for val in value.split(",")]
-        return value
-
-    def validate(self, value, model_instance):
-        super().validate(value, model_instance)
-        for index, part in enumerate(value):
-            try:
-                self.base_field.validate(part, model_instance)
-            except django_exceptions.ValidationError as error:
-                raise prefix_validation_error(
-                    error,
-                    prefix=self.error_messages["item_invalid"],
-                    code="item_invalid",
-                    params={"nth": index + 1},
-                )
-        if isinstance(self.base_field, ArrayField):
-            if len({len(i) for i in value}) > 1:
-                raise django_exceptions.ValidationError(
-                    self.error_messages["nested_array_mismatch"],
-                    code="nested_array_mismatch",
-                )
-
-    def run_validators(self, value):
-        super().run_validators(value)
-        for index, part in enumerate(value):
-            try:
-                self.base_field.run_validators(part)
-            except exceptions.ValidationError as error:
-                raise prefix_validation_error(
-                    error,
-                    prefix=self.error_messages["item_invalid"],
-                    code="item_invalid",
-                    params={"nth": index + 1},
-                )
-
-    @property
-    def model(self):
-        try:
-            return self.__dict__["model"]
-        except KeyError:
-            raise AttributeError(
-                "'%s' object has no attribute 'model'" % self.__class__.__name__
-            )
-
-    @model.setter
-    def model(self, model):
-        self.__dict__["model"] = model
-        self.base_field.model = model
-
-    def formfield(self, **kwargs):
-        return super().formfield(
-            **{
-                "form_class": SimpleArrayField,
-                "base_field": self.base_field.formfield(),
-                "max_length": self.size,
-                **kwargs,
-            }
-        )
-
-
-class HordakArrayField:
-    def __new__(cls, *args, **kwargs):
-        size = None
-        try:
-            size = kwargs.pop("size")
-        except KeyError:
-            pass
-
-        try:
-            base_field = kwargs.pop("base_field")
-        except KeyError:
-            base_field = args[0]
-
-        from django.db import connections
-
-        vendor = connections["default"].vendor
-        if vendor == "postgresql":
-            return ArrayField(base_field, size=size, **kwargs)
-        elif vendor == "mysql":
-            return HordakMysqlArrayField(base_field, size=size, **kwargs)
-        else:
-            raise NotImplementedError(
-                "ArrayField not implemented for vendor: {}".format(vendor)
-            )
+def default_currencies():
+    return defaults.CURRENCIES
 
 
 class AccountQuerySet(models.QuerySet):
@@ -289,16 +151,9 @@ class Account(MPTTModel):
         "statements into it and that it only supports a single currency",
         verbose_name=_("is bank account"),
     )
-    # currencies = ArrayField(
-    #     models.CharField(max_length=3, choices=CURRENCY_CHOICES),
-    #     db_index=True,
-    #     default=defaults.CURRENCIES,
-    #     verbose_name=_("currencies"),
-    # )
-    currencies = HordakArrayField(
-        models.CharField(max_length=3, choices=CURRENCY_CHOICES),
+    currencies = JSONField(
         db_index=True,
-        default=defaults.CURRENCIES,
+        default=default_currencies,
         verbose_name=_("currencies"),
     )
 
