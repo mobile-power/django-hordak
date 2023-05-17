@@ -21,12 +21,6 @@ Additionally, there are models which related to the import of external bank stat
   create a transaction for the statement line.
 """
 
-from django.db import models
-from django.contrib.postgres.fields.array import ArrayField
-from django.contrib.postgres.forms import SimpleArrayField
-from django.contrib.postgres.utils import prefix_validation_error
-from django.contrib.postgres.validators import ArrayMaxLengthValidator
-from django.core import exceptions as django_exceptions
 from django.db import connection, models
 from django.db import transaction
 from django.db import transaction as db_transaction
