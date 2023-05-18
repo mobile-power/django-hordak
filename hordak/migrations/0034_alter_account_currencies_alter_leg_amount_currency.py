@@ -335,7 +335,9 @@ class Migration(migrations.Migration):
                     ("ZWR", "Zimbabwean Dollar (2008)"),
                     ("ZWL", "Zimbabwean Dollar (2009)"),
                 ],
-                default=hordak.models.core.default_currencies,
+                default="EUR",
+                editable=False,
+                max_length=3,
             ),
         ),
     ]
