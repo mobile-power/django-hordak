@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
             name="currencies_json",
             field=models.JSONField(
                 db_index=True,
-                default=hordak.models.core.default_currencies,
+                default=[],
             ),
         ),
         migrations.RunPython(copy_currencies_data),
